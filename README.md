@@ -1,626 +1,450 @@
-# StackShift Skills Setup Guide
+# StackShift Setup Guide
 
-Complete installation, configuration, and usage guide for **stackshift-workflow-skills** and **ui-forge** in a StackShift project environment.
+Updated installation, configuration, and usage guide for **stackshift-workflow-skills** (`@extragraj/stackshift-skills`, currently 0.8.0) and **ui-forge** (`@extragraj/ui-forge`, currently 1.6.8) in a StackShift project.
+
+> **What changed?** Both skills had major CLI refactors. Stackshift moved to a CLI-owned bootstrap (no more deferred-to-agent mode, no more tier-bundle folders, the skill folder is now `stackshift/` not `stackshift-core/`). UI Forge replaced `npx skills add extragraj/ui-forge` and `scripts/cli.js install` with a first-party CLI: `npx @extragraj/ui-forge init`. The legacy install paths still appear in older docs around the web — ignore them and use the commands below.
 
 ---
 
 ## Table of Contents
 
-1. [Installing stackshift-workflow-skills](#1-installing-stackshift-workflow-skills)
-2. [Pre-Bootstrap & Materialization](#2-pre-bootstrap--materialization)
-3. [Installing ui-forge](#3-installing-ui-forge)
-4. [Running the Forge Scan](#4-running-the-forge-scan)
-5. [Completing the Bootstrap](#5-completing-the-bootstrap)
-6. [Use Cases & Examples](#6-use-cases--examples)
-7. [Crafting Effective Prompts](#7-crafting-effective-prompts)
+1. [Prerequisites](#1-prerequisites)
+2. [Install stackshift-workflow-skills](#2-install-stackshift-workflow-skills)
+3. [Install ui-forge](#3-install-ui-forge)
+4. [Run the Forge Scan](#4-run-the-forge-scan)
+5. [Verify the Bootstrap](#5-verify-the-bootstrap)
+6. [Day-to-Day Commands](#6-day-to-day-commands)
+7. [Fixing Legacy Installations](#7-fixing-legacy-installations)
 
 ---
 
-## 1. Installing stackshift-workflow-skills
+## 1. Prerequisites
 
-> **Recommended:** Use the interactive CLI (Option A). It handles tier selection, platform targeting, materialization, and conflict prevention in a single guided flow. It is the most reliable path and the one this guide emphasizes.
+- Node.js ≥ 18 (ESM required by both skills' runtime scripts)
+- An agentic CLI / IDE: Claude Code, Cursor, Codex, Cline, Gemini, Copilot, or any tool that supports the `.agents/` or `.claude/` skill convention
+- Run every command from your **StackShift project root** (the folder that contains `package.json` and where `.stackshift/` should live)
 
-### Option A — Interactive CLI (Recommended)
+---
 
-Run from the root of your StackShift project:
+## 2. Install stackshift-workflow-skills
+
+The CLI now performs the **full bootstrap end-to-end** in a single pass — protocol materialization, project infrastructure, `design/standards/` seeding, `.forgeignore`, and UI Forge integration. There is no deferred-to-agent mode anymore. The legacy `--no-materialize` flag was removed in 0.3.0 and exits with an error if passed.
+
+### Interactive (recommended)
 
 ```bash
 npx @extragraj/stackshift-skills init
 ```
 
-This walks you through tier selection, scope, platform, and optional seed strategy in an interactive prompt. Protocol materialization runs automatically by default — no additional flags needed.
+This walks you through:
 
-#### Common non-interactive variants
+1. **Protocol tier** — `required`, `recommended` (default), `full`, or a `custom` checkbox selection
+2. **Install scope** — `project` (default) or `global`
+3. **Platform** — pick one or more of `agents`, `claude`, `copilot`, `gemini`, `cursor`
+4. **Seed strategy** — optional; e.g. `initialvalue-seeding` or `none` (default)
+
+When it finishes you'll see a summary listing the materialized protocols, the seeded `design/standards/`, and (if UI Forge was already installed) the paired-mode integration steps.
+
+### Non-interactive
 
 ```bash
-# Defaults: recommended tier, project scope, universal agents platform
+# Defaults (recommended tier, project scope, agents platform)
 npx @extragraj/stackshift-skills init --no-interactive
 
-# Specific tier and platform
-npx @extragraj/stackshift-skills init --tier full --platform claude --no-interactive
+# Specific tier + multi-platform
+npx @extragraj/stackshift-skills init \
+  --tier full \
+  --scope project \
+  --platform agents,claude \
+  --no-interactive
 
-# With a seeding strategy
-npx @extragraj/stackshift-skills init --seed initialvalue-seeding --no-interactive
-
-# Defer all bootstrap steps to the AI agent on first invocation
-npx @extragraj/stackshift-skills init --no-materialize --no-interactive
+# With a seed strategy
+npx @extragraj/stackshift-skills init \
+  --seed initialvalue-seeding \
+  --no-interactive
 ```
 
-#### Available flags
+### Available flags
 
 | Flag | Values | Default | Description |
 |---|---|---|---|
-| `--tier` | `required`, `recommended`, `full` | `recommended` | Protocol tier bundle to install |
+| `--tier` | `required`, `recommended`, `full` | `recommended` | Protocol tier to install (`custom` requires interactive mode) |
 | `--scope` | `project`, `global` | `project` | Install location |
-| `--platform` | `agents`, `claude`, `copilot`, `gemini`, `cursor` | `agents` | Agentic platform(s) to install to (comma-separated for multiple) |
-| `--seed` | seed id or `none` | `none` | Seeding strategy (e.g., `initialvalue-seeding`) |
-| `--no-materialize` | *(flag)* | `false` | Skip CLI materialization; defer all steps to the AI agent |
-| `--no-interactive` | *(flag)* | `false` | Skip prompts and use flags with defaults |
+| `--platform` | `agents`, `claude`, `copilot`, `gemini`, `cursor` (csv) | `agents` | Platform(s); comma-separated for multiple |
+| `--seed` | seed id or `none` | `none` | Seeding strategy (invalid ids are rejected upfront) |
+| `--no-interactive` | flag | off | Skip prompts and use flags + defaults |
+| `--help`, `-h` | flag | — | Show help |
 
-> **Tier bundles are cumulative.** `recommended` includes all `required` protocols. `full` includes all tiers. Installing multiple tier bundles simultaneously causes conflicts — the CLI prevents this automatically. If you end up in a broken multi-tier state, run `npx @extragraj/stackshift-skills repair`.
+> Tiers are cumulative: `recommended` includes `required`, `full` includes everything.
 
----
+### Platform skill roots
 
-### Option B — `npx skills add` (Manual)
-
-Use this if you prefer to manage skill packages directly:
-
-```bash
-# Universal agents — project scope
-npx skills add extragraj/stackshift-workflow-skills -a agents
-
-# Claude Code — project scope
-npx skills add extragraj/stackshift-workflow-skills -a claude-code
-```
-
-**When using Option B, you must do the following manually:**
-
-1. Always install `stackshift-core` (it is the required base — the workflow, protocols, and references all live there).
-2. Install exactly **one** protocol tier bundle (`stackshift-protocols-required`, `stackshift-protocols-recommended`, or `stackshift-protocols-full`).
-3. Install at most **one** seeding strategy (optional).
-4. If you accidentally install multiple tier bundles or seeds, run `npx @extragraj/stackshift-skills repair`.
-
-Option A handles all of the above automatically. Option B is mainly useful in CI/CD pipelines or environments where the interactive CLI is not practical.
-
----
-
-### Installation Method Comparison
-
-| Feature | Option A — Interactive CLI | Option B — skills add |
+| Platform | Project | Global |
 |---|---|---|
-| Tier enforcement | Automatic | Manual |
-| Core installation | Automatic | Manual |
-| Seed activation | Automatic (prompted) | Manual (`npx init` after) |
-| Multi-tier prevention | Yes | No (use `repair`) |
-| Automation support | Full (`--no-interactive`) | Limited |
-| Bootstrap materialization | Default (use `--no-materialize` to defer) | Agent-only |
+| `claude` | `.claude/skills/` | `~/.claude/skills/` |
+| `copilot` | `.github/skills/` | `~/.copilot/skills/` |
+| `agents` | `.agents/skills/` | `~/.agents/skills/` |
+| `gemini` | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
+| `cursor` | `.cursor/skills/` | `~/.cursor/skills/` |
+
+### What the install writes
+
+- The skill folder is now named **`stackshift/`** (renamed from `stackshift-core/` in 0.6.0). Only the protocols you selected land in the destination — the in-skill `protocols/_registry.json` is pruned to match. CLI:PROTOCOLS / CLI:SEED / CLI:CROSSCUT marker regions in `SKILL.md` and `workflow/*.md` are rewritten with your installed set, so the agent never reads files for protocols you didn't install.
+- `.stackshift/installed.json` — source of truth for tier, protocols, seed, skill version, a11y, and UI Forge integration state
+- `.stackshift/protocols/` — materialized copies you can edit; `repair` and `init` never overwrite these
+- `.stackshift/references/README.md`
+- `.stackshift/injection-map.json` — a per-protocol record of where each installed protocol got injected
+- `design/standards/stackshift-section-variants.md`
+- `.forgeignore` — created if missing; appended (no data loss) if present
 
 ---
 
-## 2. Pre-Bootstrap & Materialization
+## 3. Install ui-forge
 
-After the CLI install completes, a **materialization** step runs automatically (unless you passed `--no-materialize`). This is the pre-bootstrap phase — it does not require the AI agent.
+UI Forge has a brand-new first-party CLI as of 1.6.0. The pre-1.6.0 paths (`npx skills add extragraj/ui-forge` and `node …/scripts/cli.js install`) are no longer recommended — see [Section 7](#7-fixing-legacy-installations) if you have those already.
 
-**What the CLI materializes:**
-
-- Copies selected protocol files to `.stackshift/protocols/`
-- Creates `.stackshift/protocols/_registry.json` and `_template/`
-- Creates `.stackshift/references/README.md`
-- Creates `design/standards/stackshift-section-variants.md`
-- Writes `.forgeignore` defaults (creates if missing, appends if it already exists — no data loss)
-- Writes `.stackshift/installed.json` with `"materializationDone": true`
-
-**Expected terminal output (example):**
-
-```
-StackShift Skills Installation
-
-✔ Loading registry...
-✔ Installing...
-
-◼ Materialization
-  ✅ Materialization complete (CLI phase)
-     • Protocols materialized to .stackshift/protocols/
-     • Project registries created
-     • design/standards/ initialized
-     • .forgeignore written
-
-◼ Next steps
-  ⏳ Remaining bootstrap steps (require AI agent):
-     • UI Forge detection & integration
-     • design-arch.json bridging
-     • PostToolUse hook installation
-
-  → Run your AI agent to complete bootstrap
-
-Installed 3 skill(s) to .agents/skills/
-  ✓ stackshift-core
-  ✓ stackshift-protocols-recommended
-```
-
-> If you used `--no-materialize`, the marker file will contain `"bootstrapRequired": true` instead of `"materializationDone": true`. The AI agent will detect this on first invocation and run all steps itself, including file materialization.
-
----
-
-## 3. Installing ui-forge
-
-Once stackshift-workflow-skills is installed, install the **ui-forge** companion skill. The two skills are installed independently — StackShift's bootstrap detects and integrates ui-forge automatically when it is present.
+Install from your StackShift project root:
 
 ```bash
-# Claude Code (project scope)
-npx skills add extragraj/ui-forge -a claude-code
-
-# Universal agents (project scope)
-npx skills add extragraj/ui-forge -a agents
-
-# Global install (available across all projects)
-npx skills add extragraj/ui-forge -y -g -a claude-code
+npx @extragraj/ui-forge init
 ```
 
-**After installing ui-forge, run the setup command once from your project root** to wire slash commands and Bash permissions into your platform directory:
+This single command:
+
+1. Detects StackShift via `.stackshift/installed.json` and **auto-enables paired mode** (you don't pass `--pair` manually)
+2. Copies only the runtime files each selected feature needs into the platform skill dir
+3. Writes per-platform slash commands (`/forge-scan`, `/forge`, `/forge-verify`, `/forge-export-design`, `/forge-handoff`) with `# Generated by ui-forge@<version>` provenance headers
+4. Patches `permissions.allow` in `.claude/settings.json` (or the platform equivalent) with one entry per script — least-privilege, POSIX paths, `.bak` backup created
+5. Detects and patches MCP client configs (Claude Code, Cursor, Codex, Cline) across Windows / macOS / Linux when `mcp-server` is selected
+6. Writes a portable `./ui-forge.mjs` shim at the project root (safe to commit; resolves `SKILL_ROOT` at runtime)
+7. Writes `.ui-forge/installed.json` — the lockfile that drives `repair`, `update`, `doctor`, and `uninstall`
+8. Optionally runs a quick scan to seed `design/design-arch.json` immediately
+
+### Interactive prompts (in order)
+
+The prompt order was finalized in 1.6.2:
+
+1. **Required features** — `scan`, `forge` are always installed (informational note)
+2. **Optional features** — multiselect across `verify`, `export-design`, `fetch-handoff`, `mcp-server`, `post-tool-verify-hook`, `project-cli`
+3. **Theme** — pick `stackshift` for StackShift projects (or `shadcn`, `mantine`, `plain-tailwind`, `none`)
+4. **Quick scan** — run `scan.js --quick` immediately after install (default Yes when a theme is selected)
+5. **Platforms** — agentic platforms to wire (renamed from "Target Platforms" in 1.6.2)
+6. **Scope** — `project` (default) or `global`
+
+> Re-running `init` later detects the existing lockfile and uses your previous selections as defaults, so adding or removing a feature is one prompt away.
+
+### Non-interactive (CI / recommended StackShift full install)
 
 ```bash
-# Auto-detect platform and install slash commands
-for d in .claude .agents .github .cursor .codex .copilot; do
-  [ -f "$d/skills/ui-forge/scripts/cli.js" ] && node "$d/skills/ui-forge/scripts/cli.js" install && break
-done
+npx @extragraj/ui-forge init --yes \
+  --scope=project \
+  --platforms=claude \
+  --features=scan,forge,verify,mcp-server,export-design,fetch-handoff,post-tool-verify-hook,project-cli \
+  --theme=stackshift \
+  --pair=on \
+  --theme-override \
+  --quick-scan=on
 ```
 
-This writes the `/forge-scan`, `/forge`, `/forge-verify`, and `/forge-export-design` slash commands into your platform directory and adds the required Bash tool permission.
+### `init` flags
 
-> **Note:** Because this is a StackShift project, ui-forge requires an additional activation step after installation — the Forge Scan described in Section 4. Do not skip it.
+| Flag | Values | Description |
+|---|---|---|
+| `-y, --yes` | — | Accept defaults non-interactively |
+| `--scope` | `project`, `global` | Install location |
+| `--platforms` | csv: `claude`, `cursor`, `agents`, `codex`, `copilot`, `gemini` | Agentic platforms to wire |
+| `--features` | csv: `scan`, `forge`, `verify`, `export-design`, `fetch-handoff`, `mcp-server`, `post-tool-verify-hook`, `project-cli` | Feature set (scan + forge always added) |
+| `--theme` | `shadcn`, `mantine`, `plain-tailwind`, `stackshift`, `none` | Use `stackshift` for StackShift projects |
+| `--pair` | `auto` (default), `on`, `off` | Pairing detection; `auto` reads `.stackshift/installed.json` |
+| `--mcp` | `on`, `off` | Enable/disable MCP wiring (prefer `mcp-server` in `--features`) |
+| `--mcp-clients` | csv | Subset of detected clients to wire |
+| `--quick-scan` | `on`, `off` | Run a quick scan right after install |
+| `--theme-override` | flag | StackShift only — rewrite `globals.css` + `tailwind.config.*` with StackShift tokens before scanning |
+| `--no-backup` | flag | Skip `.bak` files when `--theme-override` runs |
+| `--force-forgeignore` | flag | Overwrite a user-owned `.forgeignore` on re-install |
+| `--prune-unknown` | flag | Auto-delete unknown files during legacy sweep |
+| `--dry-run` | flag | Print the plan, write nothing |
+
+> **`--theme stackshift` is the correct flag for StackShift projects.** It forces `isStackShift: true` in `design-arch.json`, which makes the StackShift UI conventions inject at generation time even on sparse codebases.
+
+> **Limited mode:** if you run UI Forge without StackShift in the project, the stackshift theme runs in limited mode — `themeOverride` is stripped, paired signals are removed, `_limited: true` is set in the lockfile, and the default `.forgeignore` template is used. Inside a StackShift project, pairing is auto-detected and you get the full template.
 
 ---
 
-## 4. Running the Forge Scan
+## 4. Run the Forge Scan
 
-The Forge Scan indexes your project's design tokens, component patterns, and variant structures so ui-forge can generate accurately. For StackShift projects, the scan **must** run with `--theme stackshift`.
+The Forge Scan indexes design tokens, component patterns, and variant structures so UI Forge can generate accurately. For StackShift projects this **must** run with `--theme stackshift`. If you set `--quick-scan=on` (or answered Yes to the prompt) during `ui-forge init`, the scan has already run and you can skip ahead.
 
-### Via an Agentic Model (Slash Command — Recommended)
-
-If your agentic model supports slash commands (Claude Code, Cursor, AntiGravity, etc.), instruct it:
+### Via slash command (recommended)
 
 ```
 /forge-scan --theme stackshift
 ```
 
-The model executes this, writes `design/design-arch.json`, and registers the scan results with the skill context. This is the preferred invocation path.
+Works in Claude Code, Cursor, AntiGravity, and any agentic platform with slash command support. The model executes it, writes `design/design-arch.json`, and registers results with the skill context.
 
----
-
-### For New StackShift Projects
-
-If your project is new and does not yet have an established theme, Tailwind token configuration, or many component files, add the `--theme-override` flag:
+### New StackShift projects (empty globals.css / tailwind.config)
 
 ```
 /forge-scan --theme stackshift --theme-override
 ```
 
-`--theme-override` surgically replaces three sections in your project files **before** the scan reads them:
+`--theme-override` surgically rewrites three sections in your project files **before** the scan reads them:
 
 - The Google Fonts `@import` in `globals.css` → Inter font
 - The `@layer base { }` block in `globals.css` → full HSL CSS variable token set (light + dark)
-- The `theme.extend { }` section in `tailwind.config.*` → colors, border radius, spacing, font families, sizes, and weights
+- The `theme.extend { }` section in `tailwind.config.*` → colors, border radius, spacing, font families, sizes, weights
 
-This bootstraps a valid StackShift token foundation so the scan produces a meaningful `design-arch.json` even on an empty codebase. `.bak` backup files are created by default. Pass `--no-backup` to skip them. Running the command twice is idempotent.
+`.bak` files are created by default. Pass `--no-backup` to skip them. The command is idempotent — running it twice produces the same result.
 
-> **When to use `--theme-override`:** Use it when the project's `globals.css` or `tailwind.config.*` are empty, minimal, or not yet aligned to StackShift conventions. For established projects with existing token configurations, omit it.
+Use `--theme-override` when your project is fresh or unaligned to StackShift conventions. Omit it for established projects with existing tokens.
 
----
+### Without slash command support
 
-### If Your Agentic Model Does Not Support Slash Commands
-
-**Option A — Run manually in your terminal:**
+After `ui-forge init` you have a portable shim at the project root:
 
 ```bash
-# Resolve the skill root first
-for d in .claude .agents .github .cursor .codex .copilot; do
-  [ -f "$d/skills/ui-forge/scripts/detect.sh" ] && SKILL_ROOT="$(sh "$d/skills/ui-forge/scripts/detect.sh")" && break
-done
-
-# Run the scan
-node "$SKILL_ROOT/scripts/scan.js" --theme stackshift
-
-# For new projects
-node "$SKILL_ROOT/scripts/scan.js" --theme stackshift --theme-override
+node ui-forge.mjs scan --theme stackshift
+# new projects:
+node ui-forge.mjs scan --theme stackshift --theme-override
 ```
 
-**Option B — Instruct the model verbally:**
+The shim resolves `SKILL_ROOT` at runtime against your local install, so it's safe to commit to the repo.
 
-> Please run the ui-forge scan for this StackShift project. Execute `node .agents/skills/ui-forge/scripts/scan.js --theme stackshift` from the project root (adjust the path to `.claude/` if you are using Claude Code) and confirm that `design/design-arch.json` was created before proceeding.
+### Two-phase scan (AI-agnostic)
 
-**The key requirement is that the scan runs with `--theme stackshift`.** This forces `isStackShift: true` in `design-arch.json`, ensuring the built-in StackShift UI conventions are always injected at generation time — even on sparse codebases or in `--quick` mode.
+As of UI Forge 1.5.0, `/forge-scan` is a two-phase process:
+
+1. **Phase 1** — pure static analysis, always runs, writes `design/design-arch.json`
+2. **Phase 2** — the session AI (whichever model is active) reads files listed in `design/.synthesis-request.json` and synthesizes spacing, typography, and color tokens; the model calls `scripts/apply-synthesis.js` to validate and patch the arch file
+
+Pass `--quick` to skip Phase 2 and leave patterns as `'unknown'`. No subprocess, no API key, no `claude` binary required — works in Claude Code, Cursor, Codex, Cline, Gemini, and anywhere else.
 
 ---
 
-### Expected Forge Scan Output
+## 5. Verify the Bootstrap
 
-```
-ui-forge/scan: scanning project...
-  applying theme starter: stackshift
-  .forgeignore: StackShift exclusions merged (deduplicated).
-  48 source files found
-  copied built-in standard: stackshift-ui/
-  synthesizing patterns...
-    using claude CLI for synthesis
-
-Written: design/design-arch.json
-Written: design/component-usage.json
-```
-
-After this completes, `design/design-arch.json` will contain `"isStackShift": true`, your component library inventory, Tailwind token names, and synthesized pattern data.
-
----
-
-## 5. Completing the Bootstrap
-
-After the Forge Scan, the remaining bootstrap steps require the AI agent. These steps wire ui-forge's design context into StackShift and set up optional integrations.
-
-### Option A — Explicitly Instruct the Agent
-
-Tell your agentic model:
-
-> Complete the StackShift bootstrap now.
-
-The agent will check `.stackshift/installed.json` for `"materializationDone": true` and run the remaining Phase 2 steps:
-
-- **Step 6a–6b:** Builds the `designStandards` payload and bridges it into `design/design-arch.json`
-- **Step 6c:** Detects ui-forge, confirms `design-arch.json` exists (already done)
-- **Step 6d:** Records ui-forge integration state in `.stackshift/installed.json`
-- **Step 6e:** Version compatibility check between StackShift and ui-forge
-- **Step 6h:** Writes the `_paired` mirror block into `design-arch.json`
-- **Step 7b:** Installs the PostToolUse auto-verify hook into `.claude/settings.json` *(only if `auto-verify-hook` protocol is installed)*
-
-**Expected bootstrap confirmation:**
-
-```
-Bootstrapped StackShift skill (mode: recommended)
-  .stackshift/protocols/          ← 11 protocols (4 required, 7 recommended)
-  .stackshift/protocols/_registry.json  ← project protocol registry
-  .stackshift/references/         ← custom reference lookups (empty)
-  design/standards/               ← stackshift-section-variants.md
-  .forgeignore                    ← written
-  .stackshift/installed.json      ← written
-
-ui-forge integration:             ← detected
-  design/design-arch.json:        ← bridged
-  _paired mirror block:           ← written
-```
-
----
-
-### Option B — Just Start Your First Task
-
-You can skip the explicit bootstrap instruction and go straight to a workflow task. **StackShift checks bootstrap status at the start of every task.** If `"materializationDone": true` is present without the completed Phase 2 markers, the agent runs the remaining steps automatically before executing the task.
-
-This is the most common real-world path — install everything, scan, then start working.
-
----
-
-## 6. Use Cases & Examples
-
-The following examples show complete end-to-end workflows demonstrating how both skills operate together.
-
----
-
-### Use Case 1 — Adding a New Variant to an Existing Section
-
-**Scenario:** The `Features` section exists with `variant_a` through `variant_e`. You want to add `variant_f` — a two-column layout with an icon grid on the right.
-
-**Initial prompt:**
-
-> Add a new `variant_f` to the `Features` section. The variant should be a two-column layout — text content on the left, a 2×3 icon grid on the right. Reference the current `variant_d` for the schema structure and field naming conventions. Use the thumbnail in `images/variant_d.jpg` as a visual reference for spacing patterns.
-
----
-
-**How the AI processes the protocols (Recommended tier):**
-
-The agent reads `.stackshift/installed.json`, confirms which protocols are active, and enforces them in strict step order.
-
-**Step 1 — Schema Fields**
-
-- `factory-function-pattern` *(required)*: Any new fields must return plain objects with `hidden` + `_hideInVariants`. No `defineField()` wrappers.
-- `field-reuse-first` *(recommended)*: Checks local `fields.ts` and the base package for existing factories before creating new ones. Finds `arrayOfImageTitleAndText()` already exists — uses it.
-- `hide-if-variant` *(recommended)*: Walks every existing field in `features/schema/index.ts` and adds `"variant_f"` to `hideIfVariantIn([...])` on every field the new variant does not use.
-- `preview-conventions` *(recommended)*: Adds `preview` block with `prepare()` to the new icon grid array field.
-- `array-layout` *(recommended)*: Sets `options: { layout: "grid" }` on the image array.
-
-**Step 2 — Section Schema**
-
-- `section-directory-layout` *(recommended)*: Creates `initialValue/variant_f.ts` with realistic placeholder copy.
-- Appends `{ title: "Variant F", value: "variant_f", description: "Two-column icon grid layout" }` to `variantsList`.
-
-**Step 3 — TypeScript Types**
-
-- Checks `types.ts` for reusable interfaces. Finds `MainImage` and `LabeledRouteWithKey` already defined — uses them.
-- Adds new variant fields to the `Variants` interface only if genuinely novel shapes exist.
-
-**Step 4 — Component Variant (ui-forge invocation)**
-
-The agent creates `components/sections/features/variant_f.tsx` as a stub, registers it in `index.tsx`, exports the props interface, then delegates to ui-forge:
-
-```
-/forge --task "Generate body for Features_F. Two-column: text left, 2x3 icon grid right. Conform to FeaturesProps from '.'. Do not modify index.tsx." \
-       --refs components/sections/features/index.tsx,schemas/custom/.../sections/features/initialValue/variant_f.ts,schemas/custom/.../sections/features/images/variant_d.jpg \
-       --output components/sections/features/variant_f.tsx \
-       --mode body-only \
-       --signal CONVERT_VARIANT
-```
-
-**Expected ui-forge stdout (excerpt):**
-
-```
-=== UI FORGE ===
-SIGNAL: CONVERT_VARIANT
-MODE: body-only
-PAIRED: stackshift 0.2.5
-
-TASK
-Generate body for Features_F...
-
-CONTRACT [components/sections/features/index.tsx]
-  interface: FeaturesProps
-  version:   1.0.0
-
-DESIGN AUTHORITY: design/design-arch.json
-  componentLib: ./components, ./components/ui
-  tokens: primary, secondary, background, primary-foreground, ...
-  tailwind: tailwind.config.ts
-  spacing: Section vertical rhythm: py-20 (hero)...
-  usedComponents: Section, Container, Flex, Grid, GridItem, Heading, Text, Button...
-
-DESIGN STANDARDS (load as needed)
-// [REF] 02-conditional-link [...]: RULE: Any conditionalLink field must use Button as='link' — READ FULL FILE
-// [REF] 04-color-tokens [...]: RULE: Never use raw hex in className — READ FULL FILE
-// [REF] 06-spacing [...]: RULE: Section vertical padding always on <Section> — READ FULL FILE
-```
-
-**Generated variant file begins with:**
-
-```tsx
-// FORGE NOTES
-// Signal: CONVERT_VARIANT
-// @contract ./components/sections/features/index.tsx
-// Anti-slop: verified (no generic gradients, density matches two-column spec)
-//
-// CONTRACT
-//   file: ./components/sections/features/index.tsx
-//   interface: FeaturesProps
-//   version: 1.0.0
-//   props consumed:
-//     - title: destructured → rendered as <Heading type="h2">
-//     - subtitle: optional → rendered conditionally
-//     - items: destructured → mapped to icon grid
-//     - primaryButton: optional → rendered as <Button as="link">
-//   fallback rule verified: null when !title
-//   exports: default + named (PAIRED: stackshift)
-```
-
-**Step 5 — GROQ Query**
-
-Adds any non-scalar field projections inside `pages/api/query.ts`. Scalar fields like `title` and `subtitle` are left to the `...` spread. The new `items` array with image sub-fields gets an explicit projection using the existing `mainImageFields` fragment constant.
-
----
-
-**Validation:**
-
-The agent runs `validate-contract.js` post-generation (or the PostToolUse hook fires if `auto-verify-hook` is installed):
-
-```
-UI Forge — Contract Validation
-  output:    components/sections/features/variant_f.tsx
-  contract:  components/sections/features/index.tsx
-  interface: FeaturesProps
-  version:   1.0.0
-  required:  title, items
-  optional:  subtitle, primaryButton
-  paired:    stackshift (named export "Features_F" permitted)
-
-CONTRACT CHECK: PASS
-```
-
-The workflow checklist then verifies: dynamic import registered in `index.tsx`, no unexpected files written, `index.tsx` bytewise unchanged.
-
----
-
-### Use Case 2 — Scaffolding a New Section from Scratch
-
-**Scenario:** The project needs a `Testimonials` section with two variants: `variant_a` (3-column grid of cards) and `variant_b` (horizontal scrolling carousel).
-
-**Initial prompt:**
-
-> Scaffold a new `Testimonials` section from scratch. Two variants: `variant_a` (3-column grid) and `variant_b` (horizontal carousel). Reference the `Features` section schema for field naming conventions. Each testimonial card needs: quote (rich text), author name, author role, author avatar, and a star rating (1–5).
-
----
-
-**Protocol processing sequence:**
-
-**Step 1 — Schema Fields:** `field-reuse-first` checks for existing factories — finds `mainImage()`, `blockContentNormalStyle()`, and `customDropdown()` already exist. Uses them. The star rating becomes a `customDropdown()` with values `["1", "2", "3", "4", "5"]`. `preview-conventions` adds preview blocks with `BsPerson` icon fallback for the testimonial array items.
-
-**Step 2 — Section Schema:** Creates the full directory structure:
-
-```
-schemas/custom/.../sections/testimonials/
-├── testimonials.ts
-├── schema/
-│   └── index.ts
-├── initialValue/
-│   ├── variant_a.ts
-│   └── variant_b.ts
-└── images/
-    └── (thumbnails added manually after components are built)
-```
-
-One-time schema setup is already done for this project — skipped.
-
-**Step 3 — Types:** Adds `TestimonialItem` interface to `types.ts`. Reuses `MainImage` for avatar fields.
-
-**Step 4 — ui-forge invoked twice:** Once for `variant_a`, once for `variant_b`. Each invocation uses `--mode body-only` against its respective stub file, with the `initialValue/` directory as a ref for realistic copy.
-
-**Step 5 — GROQ:** The avatar `mainImage` field needs a projection using the existing `mainImageFields` fragment. The `blockContentNormalStyle` quote field is a scalar reference and needs no projection.
-
----
-
-### Use Case 3 — Tier-Dependent Protocol Behavior
-
-The protocols available at each workflow step depend on what is recorded in `.stackshift/installed.json`. Here is a reference:
-
-| Protocol | Required | Recommended | Full |
-|---|---|---|---|
-| Factory Function Pattern | ✅ | ✅ | ✅ |
-| Sub-Field Visibility | ✅ | ✅ | ✅ |
-| Variant Router | ✅ | ✅ | ✅ |
-| One-Time Custom Schema Setup | ✅ | ✅ | ✅ |
-| Field Reuse First | — | ✅ | ✅ |
-| Hide If Variant | — | ✅ | ✅ |
-| Preview Conventions | — | ✅ | ✅ |
-| Array Layout | — | ✅ | ✅ |
-| Section Directory Layout | — | ✅ | ✅ |
-| Accessibility (`SIGNAL_A11Y`) | — | ✅ | ✅ |
-| Paired-Mode Contract | — | ✅ | ✅ |
-| Brand (`SIGNAL_BRAND`) | — | — | ✅ |
-| Claude Design Handoff | — | — | ✅ |
-| Auto-Verify Hook (PostToolUse) | — | — | ✅ |
-| Modal & Sheet | — | — | ✅ |
-
-**Required** protocols block the workflow on violation — they cause build errors, runtime errors, or schema load failures. **Recommended** protocols surface warnings but do not block. **Full-tier optional** protocols activate dedicated systems with their own architecture (modal overlays, Claude Design round-trips, brand signals, auto-verify hooks).
-
-If a task mentions a keyword matching an uninstalled optional protocol, the agent surfaces a notice and applies it contextually:
-
-```
-ℹ️ Applying optional protocol "Modal & Sheet" — matched keyword "modal" in your request.
-This protocol is not in your installed set. To install it permanently, add it to your
-.stackshift/protocols/_registry.json or re-run init with --tier full.
-```
-
----
-
-## 7. Crafting Effective Prompts
-
-Based on real-world usage patterns, the most effective prompts for both skills follow a consistent two-part structure: **context** then **guidelines**.
-
----
-
-### Recommended Prompt Structure
-
-```
-[PART 1 — Context]
-Brief description of what needs to be done, where it lives, and what references exist.
-
-[PART 2 — Scheme Guidelines and Design Guidelines (ui-forge)]
-Specific instructions about schema conventions, ui-forge flags, design preferences,
-or anything the AI might miss due to sparse project context.
-```
-
----
-
-### Part 1 — Context
-
-This is where you answer three questions: **What section or component?** **What are the references?** **What is the general instruction?**
-
-Keep this section focused and specific. The more anchored it is to concrete files and patterns, the less the agent has to infer from sparse codebase context.
-
-**Example:**
-
-> Add a new `variant_c` to the `Stats` section. The variant should be a full-width dark banner with 4 stat items in a horizontal row. Reference `variant_a` for field naming conventions and `images/variant_a.jpg` for the spacing and typography patterns we use on dark backgrounds. General instruction: use the existing `customInteger()` factory for the stat value fields — do not create new factories.
-
-This block tells the agent: which section, which variant key, what layout, which references to load, and one specific field constraint.
-
----
-
-### Part 2 — Scheme Guidelines and Design Guidelines
-
-This is the most important part for avoiding missed conventions or incorrect assumptions. It splits into two categories:
-
-**Scheme Guidelines** address the schema and data layer — field factories, naming conventions, `hideIfVariantIn` rules, GROQ projection shapes, and anything schema-related the agent might not infer from sparse project files.
-
-**Design Guidelines (ui-forge)** address the component generation layer — explicit ui-forge flags, design token preferences, anti-slop constraints, and visual conventions the agent might miss because the codebase does not yet have enough examples for strong pattern inference.
-
----
-
-### Full Example Prompt
-
-```
-Add a new `variant_d` to the `BlogFeed` section. This variant shows a "featured" post as a
-large hero card at the top, with 3 smaller secondary posts in a grid below it. Reference
-`variant_b` for the base schema field structure and `variant_b.tsx` for the component layout
-patterns. The hero post card should mirror the visual weight of our `Features variant_f`.
-
----
-
-**Scheme Guidelines**
-
-- The featured post is a `reference` field pointing to the `blog` document type — it is NOT
-  a separate array. Use a single reference field pattern, not an array of objects.
-- `hideIfVariantIn(["variant_a", "variant_b", "variant_c"])` on all new fields — only
-  `variant_d` uses the featured post reference.
-- The secondary posts grid reuses the existing `blogPosts` dynamic field — do NOT create a
-  new field for this; just expose it for variant_d.
-- For the GROQ projection: the featured post reference needs a `->` dereference to pull
-  `title`, `slug.current`, `mainImage`, `categories[]->`, and `authors[]-> { name, profileImage }`.
-  Use the existing `mainImageFields` fragment for the image projection.
-
-**Design Guidelines (ui-forge)**
-
-- This section lives on a white background page — do NOT infer a dark theme from the hero
-  card. The hero card itself has a dark overlay on the image, but the section is `bg-background`.
-- The featured post card must use `<Image>` from `@stackshift-ui/image` with the `fill` pattern
-  inside a `relative aspect-[16/9]` container — do not use explicit `width` and `height` props.
-- For the secondary post cards, use `<Card>` from `@stackshift-ui/card` with its default
-  internal padding — do not add extra `p-` utilities on the card element itself.
-- The `accessibility` protocol is installed — ensure the section heading has an `id` and
-  the `<Section>` has `aria-labelledby` pointing to it.
-- Preferred pattern for post "Read more" links: `<Button as="link" link={post.link} variant="link">`.
-  Do not use raw `<a>` tags or Next.js `<Link>` directly.
-```
-
----
-
-### Why This Structure Works
-
-**Small, anchored context** (Part 1) prevents the agent from making large structural assumptions about layout or schema shape. Naming the variant key, the references, and the general intent is enough to set scope without over-constraining generation.
-
-**Scheme Guidelines** (Part 2, first half) are most critical when:
-- The section being extended has few existing variants, leaving the agent limited schema pattern context to infer from
-- You need a specific field type that is easy to get wrong (e.g., a single `reference` vs an array of references)
-- You have non-obvious `hideIfVariantIn` requirements that depend on other variants' existence
-
-**Design Guidelines** (Part 2, second half) are most critical when:
-- The project is new or sparse, so ui-forge's `design-arch.json` pattern inference may be coarse
-- You want to explicitly invoke ui-forge features like `--a11y` or `--handoff` (Claude Design)
-- You have a specific token preference that may conflict with what the reference HTML or thumbnail implies (e.g., a white-background section containing a dark card)
-- You want to enforce a component usage rule that the agent might miss due to limited variant examples in the codebase
-
----
-
-### Prompt Patterns for Common Scenarios
-
-**Adding a variant with a known layout reference:**
-
-> Add `variant_e` to `CallToAction`. Use the attached HTML mockup `cta-mockup.html` as the layout reference. Scheme: all new fields use `hideIfVariantIn(["variant_a", "variant_b", "variant_c", "variant_d"])`. Design: the gradient in the mockup maps to `bg-gradient-to-r from-primary to-secondary` — do not use arbitrary hex values.
-
-**Adding a field to an existing variant (no component rebuild):**
-
-> Add a `badge` field to `Features variant_d`. The badge is a short string (e.g. "New", "Popular") displayed above the section heading. Scheme: use `customText("badge", "Badge Label", ...)` factory; add `hideIfVariantIn` for all variants except `variant_d`; only update Steps 1, 2, 3, and 5 — do not touch the component file. Design: no ui-forge invocation needed.
-
-**Rebuilding a variant body without schema changes:**
-
-> Rebuild the component body for `Blog variant_b`. The current implementation uses raw `<a>` tags and `<img>` elements. Fix it to use `<Button as="link">` for all post links and `<Image>` from `@stackshift-ui/image` for thumbnails. Scheme: no schema or GROQ changes. Design: body-only mode against the existing file; all other variants and `index.tsx` must remain untouched.
-
-**New section with Claude Design handoff (Full tier required):**
-
-> Scaffold a new `Showcase` section with a single `variant_a`. The layout comes from the Claude Design handoff at `https://claude.ai/design/h/<id>`. Scheme: the primary data is a curated `projects` array — each item has `title`, `mainImage`, `tag` (string), and `link` (conditionalLink). Design: use `--handoff <url>` for the layout reference; all tokens must map from `design-arch.json` — do not inline any CSS from the handoff.
-
----
-
-## Appendix — Shared State Files Reference
+After both installs complete, your project should have:
 
 | File | Owner | Purpose |
 |---|---|---|
-| `.stackshift/installed.json` | StackShift | Records installed protocols, tier, seed, `a11yRequired`, ui-forge integration state |
-| `design/design-arch.json` | ui-forge | Design tokens, component inventory, patterns, `_paired` mirror block |
-| `.stackshift/protocols/` | StackShift | Materialized protocol files — project-customizable; take precedence over skill defaults at every lookup |
-| `design/standards/stackshift-section-variants.md` | StackShift (CLI) | Variant coding conventions read by ui-forge during generation |
-| `design/standards/stackshift-ui/` | ui-forge (`--theme stackshift`) | StackShift UI component conventions (8 focused files) |
-| `.claude/settings.json` | Shared | PostToolUse hook entry when `auto-verify-hook` protocol is active |
-| `.forgeignore` | Both | Scan exclusions for ui-forge — Sanity Studio, Next.js build output, Claude Design artifacts |
+| `.stackshift/installed.json` | StackShift | Tier, protocols, seed, version, a11yRequired, uiForgeIntegration |
+| `.stackshift/protocols/` | You (materialized) | Edit freely; never overwritten |
+| `.stackshift/injection-map.json` | StackShift | Per-protocol injection record |
+| `.ui-forge/installed.json` | UI Forge | Lockfile: `writtenByFeature`, `patched`, `pruned`, `summary` |
+| `design/design-arch.json` | UI Forge | Scan output: tokens, components, standards |
+| `design/standards/stackshift-section-variants.md` | StackShift | Section variant standards |
+| `design/standards/stackshift-ui.md` | UI Forge | UI standards bridged from the stackshift theme |
+| `.forgeignore` | Mixed | Default + paired-mode patterns |
+| `.claude/settings.json` (or platform equiv) | Both | `permissions.allow` entries; PostToolUse hooks when active |
+| `./ui-forge.mjs` | UI Forge | Project-root shim (safe to commit) |
+
+Sanity-check the install summaries:
+
+```bash
+npx @extragraj/stackshift-skills repair    # idempotent — confirms install integrity
+npx @extragraj/ui-forge ls                  # one-screen summary of UI Forge install
+npx @extragraj/ui-forge version             # bundled skill version + source location
+```
+
+If you have the auto-validate hook (`auto-validate-hook` protocol) and/or `post-tool-verify-hook` feature enabled, open `.claude/settings.json` and confirm `hooks.PostToolUse` contains the corresponding entries with `matcher: "Write|Edit"`.
+
+---
+
+## 6. Day-to-Day Commands
+
+### stackshift-workflow-skills
+
+| Command | Purpose |
+|---|---|
+| `npx @extragraj/stackshift-skills init` | Install or re-configure (interactive by default) |
+| `npx @extragraj/stackshift-skills repair` | Reconcile materialized protocols, purge legacy artifacts, refresh marker injection |
+| `npx @extragraj/stackshift-skills validate --file <path>` | Lint a single file for protocol violations |
+| `npx @extragraj/stackshift-skills validate --json` | Lint the whole project, JSON output (for CI) |
+| `npx @extragraj/stackshift-skills validate --hook` | PostToolUse hook entry point (reads payload from stdin) |
+
+### ui-forge
+
+| Command | Purpose |
+|---|---|
+| `npx @extragraj/ui-forge init` | Install or modify wiring (re-run to add/remove features) |
+| `npx @extragraj/ui-forge repair` | Re-apply wiring from `.ui-forge/installed.json` (non-interactive) |
+| `npx @extragraj/ui-forge doctor` | Diagnose the install; `--fix` deletes legacy files and prunes stale wiring |
+| `npx @extragraj/ui-forge ls` | One-screen summary of current install |
+| `npx @extragraj/ui-forge version` | Print bundled skill version + source location |
+| `npx @extragraj/ui-forge uninstall` | Remove everything UI Forge wrote (tracked via lockfile) |
+| `npx @extragraj/ui-forge migrate` | One-shot migration from a pre-1.6.0 install |
+| `npx @extragraj/ui-forge mcp-config` | Print MCP snippet for manual wiring |
+
+### Slash commands wired by ui-forge
+
+| Command | Description |
+|---|---|
+| `/forge-scan` | Scan project → `design/design-arch.json` |
+| `/forge --task "..." --refs <path> --output <path>` | Prepare generation context; AI generates the component |
+| `/forge-verify <component.tsx> <contract.ts>` | Verify a generated component against its contract |
+| `/forge-export-design` | Export design system as a Claude Design–ingestible bundle |
+| `/forge-handoff <url>` | Fetch a Claude Design handoff URL and materialize refs locally |
+
+### Project-root shim (`./ui-forge.mjs`)
+
+```bash
+node ui-forge.mjs --help
+node ui-forge.mjs --version
+node ui-forge.mjs scan --theme stackshift
+node ui-forge.mjs forge --task "Convert hero" --refs ./hero.html --output ./Hero.tsx
+node ui-forge.mjs verify ./Hero.tsx ./types.ts
+node ui-forge.mjs export
+node ui-forge.mjs handoff <url>
+node ui-forge.mjs mcp        # run the MCP server (stdio)
+```
+
+Exit codes: `0` success, `1` runtime error, `2` usage error.
+
+---
+
+## 7. Fixing Legacy Installations
+
+The biggest sources of confusion right now are installs that predate the recent refactors. Both CLIs have automated cleanup — in most cases you don't need to manually delete anything.
+
+### 7.1 Legacy stackshift-workflow-skills installs
+
+**Symptoms** (any one of these means you have a pre-current install):
+
+- `.agents/skills/stackshift-core/` exists (renamed to `stackshift/` in 0.6.0)
+- `.agents/skills/stackshift-protocols-required/`, `…-recommended/`, or `…-full/` folders exist (tier-bundle folders removed in 0.3.0)
+- `.agents/skills/stackshift-seed-initialvalue/` or other `stackshift-seed-*` stub folders exist (removed in 0.5.1)
+- `.stackshift/installed.json` contains `"bootstrapRequired": true` or `"materializationDone": true` (legacy marker flags, stripped on every install in 0.3.0+)
+- Your install scripts pass `--no-materialize` (removed in 0.3.0 — exits with error)
+- Your install scripts pass `--platform codex` (removed in 0.1.9B — exits with error; use `--platform agents`)
+- `skills-lock.json` has entries starting with `stackshift-protocols-`, `stackshift-seed-`, or `stackshift-core`
+
+**Fix — one command:**
+
+```bash
+npx @extragraj/stackshift-skills repair
+```
+
+Repair runs four passes and is fully automatic:
+
+1. **Legacy artifact purge** — removes any pre-0.3.0 `stackshift-protocols-*` folders, pre-0.5.1 `stackshift-seed-*` stub folders, and pre-0.6.0 `stackshift-core/` folders across every platform skill root (`.agents/`, `.claude/`, `.cursor/`, `.github/`, `.codex/`). Strips matching entries from every `skills-lock.json`. Strips `bootstrapRequired` and `materializationDone` from `.stackshift/installed.json`. If `stackshift-core/` was present and `stackshift/` was not, the new folder is re-copied from the shipped skill source.
+2. **Seed validation** — checks that the `seed` recorded in `installed.json` matches a known strategy in the seed registry.
+3. **Materialized protocol reconciliation** — compares `.stackshift/protocols/` against `installed.json`. Removes orphans; restores missing recorded protocols.
+4. **Workflow marker injection** — rewrites the CLI:PROTOCOLS / CLI:SEED / CLI:CROSSCUT regions in `SKILL.md` and `workflow/*.md` from the current `installed.json`. Also refreshes `SKILL.md` and every `workflow/*.md` from the shipped skill source so stale pre-0.7.0A content (Required actions / Recommended actions blocks etc.) is cleared.
+
+If you had `--no-materialize` or `--platform codex` baked into a script, just remove the flag (or change `codex` → `agents`) and re-run `init`.
+
+**If repair does not fully resolve it:** re-run `init` explicitly to refresh your selections. The next `init` performs the same legacy purge plus a fresh install.
+
+### 7.2 Legacy ui-forge installs
+
+**Symptoms:**
+
+- UI Forge was installed via `npx skills add extragraj/ui-forge` or `npx skills add extragraj/ui-forge -a claude-code -y -g`
+- The skill folder contains `scripts/cli.js`, `examples/`, `tests/`, `change-logs/`, `CLAUDE.md`, or `cli/src/` (dev assets that were shipped accidentally in the old install path)
+- No `.ui-forge/installed.json` lockfile at the project root
+- No `./ui-forge.mjs` shim at the project root
+- Your install command included `node "$d/skills/ui-forge/scripts/cli.js" install` or similar `cli.js install` invocations
+- Slash command files (`forge-scan.md`, `forge.md`, etc.) exist in `.claude/commands/` or `.agents/commands/` but no lockfile records them
+
+**Fix — one command:**
+
+```bash
+npx @extragraj/ui-forge migrate
+```
+
+`migrate` detects pre-existing `commands/forge-*.md` files in the platform commands dir, infers your feature set from them, writes `.ui-forge/installed.json`, and runs the legacy sweep. It's idempotent — re-running on a migrated install is a no-op.
+
+The legacy sweep removes:
+
+- `examples/`, `tests/`, `change-logs/`, `tmp/`, `CLAUDE.md` (shipped by `npx skills add`)
+- `scripts/sync-version.mjs`, `scripts/test-mcp.mjs`, `scripts/cli.js`
+- `cli/src/`, `cli/tsconfig*` (accidental tarball inclusions)
+- `themes/*.json` that don't match your selected theme
+- `*.bak`, `*.tmp`, `.DS_Store`, `Thumbs.db`
+- Stale slash command files no longer in your selected feature set
+- Stale permission entries pointing into the skill dir
+
+After migrate, run:
+
+```bash
+npx @extragraj/ui-forge doctor
+```
+
+If diagnostics surface anything (a missing file, an out-of-date provenance header, a stale permission entry), run:
+
+```bash
+npx @extragraj/ui-forge doctor --fix
+```
+
+This runs a full repair after diagnosis.
+
+### 7.3 Pre-1.6.0 → 1.6.1 hook fix
+
+If you originally installed UI Forge on 1.6.0 (where the PostToolUse hook shape was rejected by Claude Code), re-run `init` to migrate:
+
+```bash
+npx @extragraj/ui-forge init
+```
+
+The legacy 1.6.0 hook entry (object-typed `matcher`, top-level `id`) is migrated in place to the canonical Claude Code schema (`{matcher: "Write|Edit", hooks: [{type: "command", command: "..."}]}`) via a sibling `_uiForgeId` marker. Unrelated user hooks are preserved. The hook command env var is also corrected from `$CLAUDE_FILE_PATH` (which was never exported) to the canonical `$CLAUDE_TOOL_INPUT_file_path`.
+
+### 7.4 Verifying the fix
+
+After running migrate / repair / doctor on either skill:
+
+```bash
+npx @extragraj/stackshift-skills repair   # idempotent; should report no changes on a clean install
+npx @extragraj/ui-forge ls                 # confirms lockfile + feature set
+npx @extragraj/ui-forge doctor             # read-only diagnosis
+```
+
+Open `.stackshift/installed.json` and confirm `skillVersion` matches your installed CLI (e.g. `0.8.0`) and there is no `bootstrapRequired` or `materializationDone` field.
+
+Open `.ui-forge/installed.json` and confirm `lockfileVersion: 2`, the `summary` block lists your features, and `writtenByFeature` has the expected groups (`always`, `scan`, `forge`, `verify`, `theme`, `commands`, `project-cli`, `forgeignore`, plus any optional features you chose).
+
+### 7.5 Nuclear option — clean slate
+
+If automated repair/migrate doesn't get you to a clean state (which should be rare):
+
+```bash
+# 1. Uninstall ui-forge (lockfile-driven, only removes what it wrote)
+npx @extragraj/ui-forge uninstall
+
+# 2. Manually remove stackshift state
+rm -rf .stackshift/
+rm -rf .agents/skills/stackshift .agents/skills/stackshift-core .agents/skills/stackshift-protocols-*
+rm -rf .claude/skills/stackshift .claude/skills/stackshift-core .claude/skills/stackshift-protocols-*
+# repeat for any other platform dirs you use: .cursor/, .github/, .gemini/, .codex/
+
+# 3. Optional — remove design state (you'll need to rescan)
+rm -f design/design-arch.json design/.synthesis-request.json
+rm -rf design/.handoff-cache/ design/claude-design-bundle/
+
+# 4. Reinstall both, stackshift first
+npx @extragraj/stackshift-skills init
+npx @extragraj/ui-forge init
+```
+
+Reinstalling stackshift before ui-forge matters: ui-forge auto-detects pairing via `.stackshift/installed.json` during `init`, so the order ensures paired mode is wired automatically.
+
+---
+
+## Quick reference card
+
+```bash
+# Fresh StackShift project — full setup
+npx @extragraj/stackshift-skills init --tier recommended --no-interactive
+npx @extragraj/ui-forge init --yes \
+  --features=scan,forge,verify,mcp-server,project-cli,post-tool-verify-hook \
+  --theme=stackshift --pair=on --quick-scan=on
+
+# After any drift, manual edits, or CI restore
+npx @extragraj/stackshift-skills repair
+npx @extragraj/ui-forge repair
+
+# Coming from a pre-0.6.0 stackshift or pre-1.6.0 ui-forge install
+npx @extragraj/stackshift-skills repair
+npx @extragraj/ui-forge migrate
+npx @extragraj/ui-forge doctor --fix
+```
